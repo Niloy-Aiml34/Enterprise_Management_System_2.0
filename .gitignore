@@ -1,0 +1,70 @@
+# === Python ===
+
+**pycache**/
+*.py[cod]
+*.pyo
+*.pyd
+*.pkl
+*.log
+*.sqlite3
+
+# === Virtual Environment ===
+
+venv/
+env/
+.venv/
+
+# === VSCode ===
+
+.vscode/
+*.code-workspace
+
+# === Environment Files ===
+
+.env
+*.env
+
+# === Jupyter Notebook Checkpoints ===
+
+.ipynb_checkpoints/
+
+# === System Files ===
+
+.DS_Store
+Thumbs.db
+
+# === Compiled / Distribution Files ===
+
+build/
+dist/
+*.egg-info/
+*.egg
+
+# === Temporary Files ===
+
+tempCodeRunnerFile.py
+*.tmp
+*.bak
+*.swp
+
+# === Database / Model Artifacts ===
+
+attendance.db
+train_status.json
+
+# !train_status.json   ← uncomment if needed
+
+# === Dataset (IMPORTANT) ===
+
+dataset/
+
+# === Generated Static Files ===
+
+static/images/*
+!static/images/.gitkeep
+
+# === Archives ===
+
+*.zip
+*.tar.gz
+*.rar
