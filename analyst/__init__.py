@@ -4,15 +4,13 @@ from flask import Blueprint, request, jsonify, send_from_directory
 from dotenv import load_dotenv
 
 _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
-_ROOT_DIR = os.path.dirname(_PKG_DIR)
-_ENV_PATH = os.path.join(_ROOT_DIR, "Ai_Data_Analyst", ".env")
-load_dotenv(dotenv_path=_ENV_PATH, override=False)
+load_dotenv(dotenv_path=os.path.join(_PKG_DIR, ".env"), override=False)
 
 from .metadata import extract_metadata
 from .llm import auto_analyse, ask_gemini, summarize_chart
 from .code_runner import run_chart_code, fig_to_json
 
-STATIC_DIR = os.path.join(_ROOT_DIR, "Ai_Data_Analyst", "static")
+STATIC_DIR = os.path.join(_PKG_DIR, "static")
 
 analyst = Blueprint("analyst", __name__, url_prefix="/analyst")
 
