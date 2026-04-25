@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Student Details</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    html { scroll-behavior: smooth; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: url("static/images/bg.png") center/cover no-repeat fixed;
+    }
+    .page-wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+    .nav-gradient {
+      background: linear-gradient(90deg, #0f172a, #3b82f6);
+      border-radius: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .glass-card {
+      background: rgba(255, 255, 255, 0.93);
+      backdrop-filter: blur(6px);
+      border-radius: 16px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    }
+    .table thead th { font-size: 0.82rem; letter-spacing: .03em; text-transform: uppercase; }
+    .badge-count { font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+<div class="page-wrap">
+
+  <!-- Navbar -->
+  <nav class="navbar navbar-expand-lg navbar-dark nav-gradient shadow-sm px-3">
+    <div class="container-fluid">
+      <span class="navbar-brand fw-bold">Student Details</span>
+      <div class="d-flex gap-2">
+        <a class="btn btn-outline-light btn-sm" href="/add_student">+ Add Student</a>
+        <a class="btn btn-outline-warning btn-sm" href="/attendance">← Back to Dashboard</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Card -->
+  <div class="card glass-card p-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+      <div class="d-flex align-items-center gap-2">
+        <h5 class="mb-0">Registered Students</h5>
+        <span id="studentCount" class="badge bg-primary badge-count">0</span>
+      </div>
+      <input id="searchInput" type="text" class="form-control form-control-sm"
+        placeholder="Search by name, roll, class, section or reg no…"
+        style="max-width:300px;">
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-hover table-bordered align-middle mb-0">
+        <thead class="table-dark">
+          <tr>
+            <th>#</th>
+            <th>Name</th>
+            <th>Roll</th>
+            <th>Class</th>
+            <th>Section</th>
+            <th>Reg No</th>
+            <th>Added On</th>
+            <th class="text-center">Action</th>
+          </tr>
+        </thead>
+        <tbody id="studentTableBody">
+          <tr><td colspan="8" class="text-center text-muted py-4">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div id="noResults" class="text-center text-muted py-3 d-none">No students match your search.</div>
+  </div>
+
+</div>
+
+<script>
+  let allStudents = [];
+
+  async function loadStudents() {
+    try {
+      const res = await fetch("/students");
+      const data = await res.json();
+      allStudents = data.students || [];
+      render(allStudents);
+    } catch {
+      document.getElementById("studentTableBody").innerHTML =
+        '<tr><td colspan="8" class="text-center text-danger py-4">Failed to load students.</td></tr>';
+    }
+  }
+
+  function render(list) {
+    const tbody = document.getElementById("studentTableBody");
+    const noResults = document.getElementById("noResults");
+    document.getElementById("studentCount").textContent = allStudents.length;
+
+    if (list.length === 0) {
+      tbody.innerHTML = "";
+      noResults.classList.remove("d-none");
+      return;
+    }
+    noResults.classList.add("d-none");
+
+    tbody.innerHTML = list.map((s, i) => `
+      <tr>
+        <td class="text-muted">${i + 1}</td>
+        <td class="fw-semibold">${esc(s.name)}</td>
+        <td>${esc(s.roll)}</td>
+        <td>${esc(s.class)}</td>
+        <td>${esc(s.section)}</td>
+        <td><code>${esc(s.reg_no)}</code></td>
+        <td class="text-muted small">${s.created_at ? s.created_at.slice(0,10) : '—'}</td>
+        <td class="text-center">
+          <button class="btn btn-outline-danger btn-sm px-2 py-0"
+            onclick="deleteStudent(${s.id}, '${esc(s.name).replace(/'/g,"\\'")}')">Delete</button>
+        </td>
+      </tr>
+    `).join("");
+  }
+
+  document.getElementById("searchInput").addEventListener("input", function () {
+    const q = this.value.toLowerCase();
+    render(q
+      ? allStudents.filter(s =>
+          [s.name, s.roll, s.class, s.section, s.reg_no]
+          .some(v => (v || "").toLowerCase().includes(q)))
+      : allStudents);
+  });
+
+  async function deleteStudent(id, name) {
+    if (!confirm(`Delete "${name}" and all their attendance records?`)) return;
+    const res = await fetch(`/students/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      allStudents = allStudents.filter(s => s.id !== id);
+      const q = document.getElementById("searchInput").value.toLowerCase();
+      render(q
+        ? allStudents.filter(s =>
+            [s.name, s.roll, s.class, s.section, s.reg_no]
+            .some(v => (v || "").toLowerCase().includes(q)))
+        : allStudents);
+    } else {
+      alert("Failed to delete student.");
+    }
+  }
+
+  function esc(str) {
+    return String(str ?? "")
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  loadStudents();
+</script>
+</body>
+</html>

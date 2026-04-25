@@ -6,6 +6,7 @@ import datetime
 import json
 from flask import Flask, render_template, request, jsonify, send_file, abort
 from model import train_model_background, extract_embedding_for_image, MODEL_PATH
+from analyst import analyst as analyst_bp
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(APP_DIR, "attendance.db")
@@ -15,6 +16,7 @@ os.makedirs(DATASET_DIR, exist_ok=True)
 TRAIN_STATUS_FILE = os.path.join(APP_DIR, "train_status.json")
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+app.register_blueprint(analyst_bp)
 
 # ---------- DB helpers ----------
 def init_db():
@@ -116,17 +118,42 @@ def add_student():
     cls = data.get("class","").strip()
     sec = data.get("sec","").strip()
     reg_no = data.get("reg_no","").strip()
-    if not name:
-        return jsonify({"error":"name required"}), 400
+    missing = [f for f, v in [("Name", name), ("Roll", roll), ("Class", cls), ("Section", sec), ("Registration No", reg_no)] if not v]
+    if missing:
+        return jsonify({"error": f"Required fields missing: {', '.join(missing)}."}), 400
+
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+
+    # Registration number must be globally unique
+    if reg_no:
+        c.execute("SELECT name FROM students WHERE reg_no = ?", (reg_no,))
+        row = c.fetchone()
+        if row:
+            conn.close()
+            return jsonify({
+                "error": f"Registration number '{reg_no}' is already assigned to student '{row[0]}'."
+            }), 409
+
+    # Roll number must be unique within the same class + section
+    if roll and cls and sec:
+        c.execute(
+            "SELECT name FROM students WHERE roll = ? AND class = ? AND section = ?",
+            (roll, cls, sec)
+        )
+        row = c.fetchone()
+        if row:
+            conn.close()
+            return jsonify({
+                "error": f"Roll number '{roll}' is already taken by '{row[0]}' in {cls} – {sec}."
+            }), 409
+
     now = datetime.datetime.utcnow().isoformat()
     c.execute("INSERT INTO students (name, roll, class, section, reg_no, created_at) VALUES (?, ?, ?, ?, ?, ?)",
               (name, roll, cls, sec, reg_no, now))
     sid = c.lastrowid
     conn.commit()
     conn.close()
-    # create dataset folder for this student
     os.makedirs(os.path.join(DATASET_DIR, str(sid)), exist_ok=True)
     return jsonify({"student_id": sid})
 
@@ -195,17 +222,23 @@ def recognize_face():
         # threshold confidence
         if conf < 0.5:
             return jsonify({"recognized": False, "confidence": float(conf)}), 200
-        # find student name
+        # find student — if deleted, the model is stale; refuse to mark attendance
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute("SELECT name FROM students WHERE id=?", (int(pred_label),))
         row = c.fetchone()
-        name = row[0] if row else "Unknown"
         conn.close()
 
+        if not row:
+            return jsonify({
+                "recognized": False,
+                "error": "Model is outdated — a recognised student no longer exists in the database. Please retrain the model."
+            }), 200
+
+        name = row[0]
         sid_int = int(pred_label)
 
-        # NEW: block duplicates for the day (UTC)
+        # block duplicates for the day (UTC)
         if has_attendance_today(sid_int):
             return jsonify({
                 "recognized": True,
@@ -278,6 +311,11 @@ def download_csv():
     mem.seek(0)
     return send_file(mem, as_attachment=True, download_name="attendance.csv", mimetype="text/csv")
 
+# -------- Student Details page --------
+@app.route("/student_details")
+def student_details():
+    return render_template("student_details.html")
+
 # -------- Students API for listing/editing --------
 @app.route("/students", methods=["GET"])
 def students_list():
@@ -297,11 +335,19 @@ def delete_student(sid):
     c.execute("DELETE FROM attendance WHERE student_id=?", (sid,))
     conn.commit()
     conn.close()
-    # also delete dataset folder
+
+    # delete dataset folder
+    import shutil
     folder = os.path.join(DATASET_DIR, str(sid))
     if os.path.isdir(folder):
-        import shutil
         shutil.rmtree(folder, ignore_errors=True)
+
+    # invalidate the trained model — it still knows the deleted student's face
+    from model import MODEL_PATH
+    if os.path.exists(MODEL_PATH):
+        os.remove(MODEL_PATH)
+    write_train_status({"running": False, "progress": 0, "message": "Model reset — a student was deleted. Please retrain."})
+
     return jsonify({"deleted": True})
 
 # ---------------- run ------------------------

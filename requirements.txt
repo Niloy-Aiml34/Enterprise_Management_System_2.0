@@ -1,6 +1,12 @@
 flask
 opencv-python
-mediapipe
 scikit-learn
 pandas
 numpy
+python-dotenv
+plotly
+langchain-core
+langchain-google-genai
+langchain-openai
+langchain-anthropic
+langchain-ollama
