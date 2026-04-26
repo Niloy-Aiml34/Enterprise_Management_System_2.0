@@ -7,7 +7,7 @@ _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(dotenv_path=os.path.join(_PKG_DIR, ".env"), override=False)
 
 from .metadata import extract_metadata
-from .llm import auto_analyse, ask_gemini, summarize_chart
+from .llm import auto_analyse, ask_gemini, summarize_chart, RateLimitError
 from .code_runner import run_chart_code, fig_to_json
 
 STATIC_DIR = os.path.join(_PKG_DIR, "static")
@@ -47,6 +47,7 @@ def upload_csv():
     state["chat_charts"] = []
 
     result = auto_analyse(state["metadata"], df)
+
     auto_charts = []
     for chart in result["charts"]:
         auto_charts.append({
@@ -64,6 +65,7 @@ def upload_csv():
         "auto_charts": auto_charts,
         "errors": result.get("errors", []),
         "suggestion_error": result.get("suggestion_error"),
+        "fatal_error": result.get("fatal_error"),
     })
 
 
@@ -92,7 +94,7 @@ def chat():
     if response["type"] == "chart":
         result["explanation"] = response.get("explanation", "")
         result["code"] = response.get("code", "")
-        fig, error = run_chart_code(response["code"], state["df"])
+        fig, _ = run_chart_code(response["code"], state["df"])
         if fig:
             result["figure_json"] = fig_to_json(fig)
             state["chat_charts"].append({
@@ -101,14 +103,18 @@ def chat():
                 "figure_json": result["figure_json"],
             })
         else:
-            result["error"] = error
+            result["chart_render_error"] = {
+                "icon": "🔌",
+                "title": "Couldn't render chart",
+                "message": "The AI generated invalid plotting code. Try rephrasing your request.",
+            }
 
     elif response["type"] == "text":
         result["content"] = response["content"]
         if response.get("chart_code"):
             result["chart_explanation"] = response.get("chart_explanation", "")
             result["chart_code"] = response["chart_code"]
-            fig, error = run_chart_code(response["chart_code"], state["df"])
+            fig, _ = run_chart_code(response["chart_code"], state["df"])
             if fig:
                 result["chart_figure_json"] = fig_to_json(fig)
                 state["chat_charts"].append({
@@ -117,9 +123,17 @@ def chat():
                     "figure_json": result["chart_figure_json"],
                 })
             else:
-                result["chart_error"] = error
+                result["chart_render_error"] = {
+                    "icon": "🔌",
+                    "title": "Couldn't render supporting chart",
+                    "message": "The AI generated invalid plotting code for the supporting visual.",
+                }
     else:
-        result["content"] = response.get("content", "Unknown error")
+        result["error"] = response.get("error") or {
+            "icon": "⚠️",
+            "title": "Something went wrong",
+            "message": response.get("content", "We couldn't process that request right now."),
+        }
 
     return jsonify(result)
 
@@ -138,7 +152,12 @@ def deep_summary():
         return jsonify({"error": "Invalid chart index"}), 400
 
     chart = charts[index]
-    summary = summarize_chart(state["metadata"], chart["title"], chart["code"])
+    try:
+        summary = summarize_chart(state["metadata"], chart["title"], chart["code"])
+    except RateLimitError as e:
+        from .llm import _rate_limit_dict
+        return jsonify({"error": _rate_limit_dict(e)}), 429
+
     return jsonify({"summary": summary})
 
 

@@ -5,6 +5,65 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from .metadata import metadata_to_prompt_str
 from .code_runner import run_chart_code
 
+
+# ── Rate-limit detection ────────────────────────────────────────
+class RateLimitError(Exception):
+    pass
+
+
+def _is_rate_limit(e: Exception) -> bool:
+    msg = str(e).lower()
+    # Rate / quota limits
+    if any(k in msg for k in (
+        "429", "rate limit", "quota", "resource_exhausted",
+        "resource has been exhausted", "daily limit", "too many requests",
+        "ratelimit", "rate_limit", "exceeded",
+    )):
+        return True
+    # Invalid / missing API key — all requests will fail, treat as fatal
+    if any(k in msg for k in (
+        "api key not found", "api_key_invalid", "invalid api key",
+        "api key invalid", "pass a valid api key",
+    )):
+        return True
+    return False
+
+
+def _rate_limit_dict(e: Exception) -> dict:
+    msg = str(e).lower()
+
+    # API key problem — give an actionable message
+    if any(k in msg for k in ("api key not found", "api_key_invalid", "pass a valid api key", "invalid api key")):
+        return {
+            "icon": "🔑",
+            "title": "Invalid or missing API key",
+            "message": (
+                "The Gemini API key was rejected. "
+                "Please check that GEMINI_API_KEY is set correctly in analyst/.env and restart the server."
+            ),
+            "fatal": True,
+        }
+
+    # Rate / quota limit
+    raw = str(e)
+    retry_match = re.search(r"retry.after[:\s]+(\d+)", raw, re.I)
+    retry_after = int(retry_match.group(1)) if retry_match else None
+    d = {
+        "icon": "🚫",
+        "title": "API limit reached",
+        "message": (
+            "You've hit the API rate or daily usage limit. "
+            "No further AI requests will be made. "
+            "Please wait a while then reload the page."
+        ),
+        "fatal": True,
+    }
+    if retry_after:
+        d["retry_after"] = retry_after
+    return d
+
+
+# ── Prompts ─────────────────────────────────────────────────────
 AUTO_ANALYSIS_SYSTEM = """You are an expert data analyst.
 
 Given CSV metadata, suggest exactly 4 of the most insightful charts for this dataset.
@@ -101,7 +160,7 @@ def get_llm(provider: str | None = None, model: str | None = None):
     if provider == "openai":
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
-            model="gpt-5-nano",
+            model="gpt-4o-mini",
             api_key=os.environ["OPENAI_API_KEY"],
         )
 
@@ -125,7 +184,12 @@ def get_llm(provider: str | None = None, model: str | None = None):
 def _invoke(system_prompt: str, user_prompt: str) -> str:
     llm = get_llm(provider="gemini")
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
-    response = llm.invoke(messages)
+    try:
+        response = llm.invoke(messages)
+    except Exception as e:
+        if _is_rate_limit(e):
+            raise RateLimitError(str(e)) from e
+        raise
     return response.content.strip()
 
 
@@ -135,67 +199,76 @@ def is_chart_request(prompt: str) -> bool:
 
 
 def auto_analyse(metadata: dict, df) -> dict:
-    metadata_str = metadata_to_prompt_str(metadata)
-    suggestion_prompt = f"Here is the CSV metadata:\n\n{metadata_str}\n\nSuggest 4 insightful charts."
-
-    suggestions = []
-    suggestion_error = None
+    """Returns {charts, errors, suggestion_error, fatal_error}.
+    fatal_error is populated (and charts is empty) when the API is rate-limited.
+    """
     try:
-        raw = _invoke(AUTO_ANALYSIS_SYSTEM, suggestion_prompt)
-        raw = re.sub(r"^```[a-z]*\n?", "", raw, flags=re.MULTILINE)
-        raw = re.sub(r"```$", "", raw, flags=re.MULTILINE)
-        suggestions = json.loads(raw.strip())
-    except Exception as e:
-        suggestion_error = str(e)
-        numeric_cols = [c["name"] for c in metadata["columns"] if c.get("kind") == "numeric"]
-        cat_cols = [c["name"] for c in metadata["columns"] if c.get("kind") == "categorical"]
+        metadata_str = metadata_to_prompt_str(metadata)
+        suggestion_prompt = f"Here is the CSV metadata:\n\n{metadata_str}\n\nSuggest 4 insightful charts."
+
         suggestions = []
-        if numeric_cols:
-            suggestions.append({
-                "title": f"Distribution of {numeric_cols[0]}",
-                "chart_request": f"Show a histogram of the '{numeric_cols[0]}' column."
-            })
-        if len(numeric_cols) >= 2:
-            suggestions.append({
-                "title": f"{numeric_cols[0]} vs {numeric_cols[1]}",
-                "chart_request": f"Show a scatter plot of '{numeric_cols[0]}' vs '{numeric_cols[1]}'."
-            })
-        if cat_cols and numeric_cols:
-            suggestions.append({
-                "title": f"{numeric_cols[0]} by {cat_cols[0]}",
-                "chart_request": f"Show a bar chart of average '{numeric_cols[0]}' grouped by '{cat_cols[0]}'."
-            })
-        if len(numeric_cols) >= 1:
-            suggestions.append({
-                "title": f"Box plot of {numeric_cols[0]}",
-                "chart_request": f"Show a box plot of '{numeric_cols[0]}'."
-            })
-        if not suggestions:
-            suggestions.append({
-                "title": "Column overview",
-                "chart_request": "Show a bar chart of the value counts of the first categorical column."
-            })
-
-    charts = []
-    errors = []
-    for s in suggestions[:4]:
-        result = _generate_chart(metadata, s["chart_request"], df)
-        if result["type"] == "chart":
-            fig, error = run_chart_code(result["code"], df)
-            if fig:
-                explanation = _explain_chart(metadata, s["title"])
-                charts.append({
-                    "title": s["title"],
-                    "figure": fig,
-                    "code": result["code"],
-                    "explanation": explanation,
+        suggestion_error = None
+        try:
+            raw = _invoke(AUTO_ANALYSIS_SYSTEM, suggestion_prompt)
+            raw = re.sub(r"^```[a-z]*\n?", "", raw, flags=re.MULTILINE)
+            raw = re.sub(r"```$", "", raw, flags=re.MULTILINE)
+            suggestions = json.loads(raw.strip())
+        except RateLimitError:
+            raise
+        except Exception as e:
+            suggestion_error = str(e)
+            numeric_cols = [c["name"] for c in metadata["columns"] if c.get("kind") == "numeric"]
+            cat_cols = [c["name"] for c in metadata["columns"] if c.get("kind") == "categorical"]
+            suggestions = []
+            if numeric_cols:
+                suggestions.append({
+                    "title": f"Distribution of {numeric_cols[0]}",
+                    "chart_request": f"Show a histogram of the '{numeric_cols[0]}' column."
                 })
-            else:
-                errors.append(f"Code exec failed for '{s['title']}': {error}")
-        else:
-            errors.append(f"Chart gen failed for '{s['title']}': {result.get('content')}")
+            if len(numeric_cols) >= 2:
+                suggestions.append({
+                    "title": f"{numeric_cols[0]} vs {numeric_cols[1]}",
+                    "chart_request": f"Show a scatter plot of '{numeric_cols[0]}' vs '{numeric_cols[1]}'."
+                })
+            if cat_cols and numeric_cols:
+                suggestions.append({
+                    "title": f"{numeric_cols[0]} by {cat_cols[0]}",
+                    "chart_request": f"Show a bar chart of average '{numeric_cols[0]}' grouped by '{cat_cols[0]}'."
+                })
+            if len(numeric_cols) >= 1:
+                suggestions.append({
+                    "title": f"Box plot of {numeric_cols[0]}",
+                    "chart_request": f"Show a box plot of '{numeric_cols[0]}'."
+                })
+            if not suggestions:
+                suggestions.append({
+                    "title": "Column overview",
+                    "chart_request": "Show a bar chart of the value counts of the first categorical column."
+                })
 
-    return {"charts": charts, "errors": errors, "suggestion_error": suggestion_error}
+        charts = []
+        errors = []
+        for s in suggestions[:4]:
+            result = _generate_chart(metadata, s["chart_request"], df)
+            if result["type"] == "chart":
+                fig, error = run_chart_code(result["code"], df)
+                if fig:
+                    explanation = _explain_chart(metadata, s["title"])
+                    charts.append({
+                        "title": s["title"],
+                        "figure": fig,
+                        "code": result["code"],
+                        "explanation": explanation,
+                    })
+                else:
+                    errors.append({"title": s["title"], "message": f"Code execution failed: {error}"})
+            else:
+                errors.append({"title": s["title"], "message": result.get("content", "Chart generation failed")})
+
+        return {"charts": charts, "errors": errors, "suggestion_error": suggestion_error, "fatal_error": None}
+
+    except RateLimitError as e:
+        return {"charts": [], "errors": [], "suggestion_error": None, "fatal_error": _rate_limit_dict(e)}
 
 
 def _explain_chart(metadata: dict, chart_title: str) -> str:
@@ -203,21 +276,26 @@ def _explain_chart(metadata: dict, chart_title: str) -> str:
     prompt = f"CSV metadata:\n\n{metadata_str}\n\nChart title: {chart_title}\n\nExplain what this chart reveals about the data."
     try:
         return _invoke(CHART_EXPLAIN_SYSTEM, prompt)
+    except RateLimitError:
+        raise
     except Exception:
         return ""
 
 
 def ask_gemini(metadata: dict, user_question: str, df, chat_history: list, explain_with_chart: bool = False) -> dict:
-    if is_chart_request(user_question):
-        return _generate_chart(metadata, user_question, df)
-    else:
-        text_result = _generate_insight(metadata, user_question, chat_history)
-        if explain_with_chart and text_result["type"] == "text":
-            chart_result = _generate_explain_chart(metadata, user_question, text_result["content"], df)
-            if chart_result["type"] == "chart":
-                text_result["chart_code"] = chart_result["code"]
-                text_result["chart_explanation"] = chart_result.get("explanation", "")
-        return text_result
+    try:
+        if is_chart_request(user_question):
+            return _generate_chart(metadata, user_question, df)
+        else:
+            text_result = _generate_insight(metadata, user_question, chat_history)
+            if explain_with_chart and text_result["type"] == "text":
+                chart_result = _generate_explain_chart(metadata, user_question, text_result["content"], df)
+                if chart_result["type"] == "chart":
+                    text_result["chart_code"] = chart_result["code"]
+                    text_result["chart_explanation"] = chart_result.get("explanation", "")
+            return text_result
+    except RateLimitError as e:
+        return {"type": "error", "error": _rate_limit_dict(e)}
 
 
 def _generate_chart(metadata: dict, request: str, df) -> dict:
@@ -225,6 +303,8 @@ def _generate_chart(metadata: dict, request: str, df) -> dict:
     prompt = f"CSV metadata:\n\n{metadata_str}\n\nChart request: {request}"
     try:
         return _parse_chart_response(_invoke(CHART_SYSTEM, prompt))
+    except RateLimitError:
+        raise
     except Exception as e:
         return {"type": "error", "content": str(e)}
 
@@ -247,6 +327,8 @@ def _generate_insight(metadata: dict, question: str, chat_history: list) -> dict
 """
     try:
         return {"type": "text", "content": _invoke(INSIGHT_SYSTEM, prompt)}
+    except RateLimitError:
+        raise
     except Exception as e:
         return {"type": "error", "content": str(e)}
 
@@ -264,6 +346,8 @@ Generate a chart that visually explains or supports this answer.
 """
     try:
         return _parse_chart_response(_invoke(EXPLAIN_WITH_CHART_SYSTEM, prompt))
+    except RateLimitError:
+        raise
     except Exception as e:
         return {"type": "error", "content": str(e)}
 
@@ -284,6 +368,8 @@ Provide a thorough analytical summary of what this chart reveals.
 """
     try:
         return _invoke(SUMMARIZE_CHART_SYSTEM, prompt)
+    except RateLimitError:
+        raise
     except Exception as e:
         return f"Error generating summary: {e}"
 
