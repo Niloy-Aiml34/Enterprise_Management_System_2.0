@@ -4,7 +4,7 @@
 *.py[cod]
 *.pyo
 *.pyd
-*.pkl
+
 *.log
 *.sqlite3
 

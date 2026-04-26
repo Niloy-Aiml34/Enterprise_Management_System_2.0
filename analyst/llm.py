@@ -148,6 +148,19 @@ Provide a thorough analytical summary covering:
 Write 5-8 detailed sentences. Be specific with column names, values, and statistics.
 """
 
+SQL_SYSTEM = """You are an expert SQL analyst.
+
+You are given the CREATE TABLE schema of a SQLite table.
+Generate a single valid SQLite SELECT query that answers the user's question.
+
+Rules:
+- Return ONLY the raw SQL query. No markdown, no code fences, no explanation.
+- Use the exact table name from the schema provided.
+- Use only SELECT statements. Never INSERT, UPDATE, DELETE, DROP, or CREATE.
+- Always add LIMIT 500 unless the user explicitly asks for more rows.
+- If the question cannot be answered with SQL (e.g. it is a conceptual or general question unrelated to this dataset), respond with exactly: NO_SQL
+"""
+
 
 def get_llm(provider: str | None = None, model: str | None = None):
     if provider == "gemini":
@@ -282,11 +295,15 @@ def _explain_chart(metadata: dict, chart_title: str) -> str:
         return ""
 
 
-def ask_gemini(metadata: dict, user_question: str, df, chat_history: list, explain_with_chart: bool = False) -> dict:
+def ask_gemini(metadata: dict, user_question: str, df, chat_history: list, explain_with_chart: bool = False, schema: str = "") -> dict:
     try:
         if is_chart_request(user_question):
             return _generate_chart(metadata, user_question, df)
         else:
+            if schema:
+                sql_result = _generate_sql(schema, user_question)
+                if sql_result["type"] == "sql":
+                    return sql_result
             text_result = _generate_insight(metadata, user_question, chat_history)
             if explain_with_chart and text_result["type"] == "text":
                 chart_result = _generate_explain_chart(metadata, user_question, text_result["content"], df)
@@ -372,6 +389,22 @@ Provide a thorough analytical summary of what this chart reveals.
         raise
     except Exception as e:
         return f"Error generating summary: {e}"
+
+
+def _generate_sql(schema: str, question: str) -> dict:
+    prompt = f"Table schema:\n{schema}\n\nUser question: {question}"
+    try:
+        raw = _invoke(SQL_SYSTEM, prompt).strip()
+        raw = re.sub(r"^```[a-z]*\n?", "", raw, flags=re.MULTILINE)
+        raw = re.sub(r"```$", "", raw, flags=re.MULTILINE)
+        sql = raw.strip()
+        if sql.upper().startswith("NO_SQL"):
+            return {"type": "text_needed"}
+        return {"type": "sql", "sql": sql}
+    except RateLimitError:
+        raise
+    except Exception:
+        return {"type": "text_needed"}
 
 
 def _parse_chart_response(raw: str) -> dict:

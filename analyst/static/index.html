@@ -38,12 +38,17 @@
     <!-- ── Sidebar ─────────────────────────────────────────── -->
     <aside class="sidebar">
       <div class="sidebar-section">
-        <h3>📁 Data Source</h3>
+        <h3>📁 Upload Dataset</h3>
         <div class="upload-area" id="uploadArea">
           <span class="upload-icon">📄</span>
           <p><strong>Click or drag</strong> a CSV file here</p>
           <input type="file" id="fileInput" accept=".csv" />
         </div>
+      </div>
+
+      <div id="tablesSection" class="sidebar-section hidden">
+        <h3>🗄 Saved Datasets</h3>
+        <div id="tablesList" class="tables-list"></div>
       </div>
 
       <div id="fileInfo" class="sidebar-section hidden">
@@ -54,7 +59,7 @@
       </div>
 
       <div id="previewSection" class="sidebar-section hidden">
-        <h3>🔍 Data Preview</h3>
+        <h3>🔍 Preview (top 5 rows)</h3>
         <div class="data-preview" id="dataPreview"></div>
       </div>
     </aside>

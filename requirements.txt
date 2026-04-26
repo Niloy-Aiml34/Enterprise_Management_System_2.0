@@ -1,12 +1,23 @@
-flask
-opencv-python
-scikit-learn
-pandas
-numpy
-python-dotenv
-plotly
-langchain-core
-langchain-google-genai
-langchain-openai
-langchain-anthropic
-langchain-ollama
+# Web framework
+flask==3.1.2
+
+# Computer vision & ML (facial recognition)
+opencv-python==4.12.0.88
+numpy==2.2.6
+scikit-learn==1.7.2
+
+# Data processing
+pandas==2.3.3
+
+# Environment variables
+python-dotenv==1.2.2
+
+# Charts (Data Analyst module)
+plotly==6.7.0
+
+# LangChain AI (Data Analyst module)
+langchain-core==1.3.2
+langchain-google-genai==4.2.2
+langchain-openai==1.2.1
+langchain-anthropic==1.4.1
+langchain-ollama==1.1.0

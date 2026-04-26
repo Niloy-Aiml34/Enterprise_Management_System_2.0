@@ -84,6 +84,130 @@ uploadArea.addEventListener('drop', e => {
 });
 fileInput.addEventListener('change', () => { if (fileInput.files.length) handleUpload(fileInput.files[0]); });
 
+/* ── Tables list ──────────────────────────────────────────── */
+async function loadTablesList() {
+  try {
+    const res  = await fetch('/analyst/api/tables');
+    const data = await res.json();
+    renderTablesList(data.tables || [], data.active);
+  } catch (err) {
+    console.error('Failed to load tables:', err);
+  }
+}
+
+function renderTablesList(tables, activeTable) {
+  const sec  = document.getElementById('tablesSection');
+  const list = document.getElementById('tablesList');
+  if (!tables.length) { sec.classList.add('hidden'); list.innerHTML = ''; return; }
+  sec.classList.remove('hidden');
+  list.innerHTML = '';
+  tables.forEach(t => {
+    const item = document.createElement('div');
+    item.className = `tbl-item${t.name === activeTable ? ' active' : ''}`;
+    item.id = `tbl-${t.name}`;
+    item.innerHTML = `
+      <div class="tbl-item-info">
+        <span class="tbl-name">${esc(t.name)}</span>
+        <span class="tbl-meta">${t.row_count.toLocaleString()} rows × ${t.column_count} cols</span>
+      </div>
+      <button class="tbl-del-btn" title="Delete table">✕</button>`;
+    item.addEventListener('click', () => activateTable(t.name));
+    item.querySelector('.tbl-del-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      deleteTable(t.name);
+    });
+    list.appendChild(item);
+  });
+}
+
+async function activateTable(name) {
+  if (apiBlocked) return;
+  showLoading(true);
+  try {
+    const res  = await fetch(`/analyst/api/tables/${encodeURIComponent(name)}/activate`, { method: 'POST' });
+    const data = await res.json();
+    if (data.error) {
+      showLoading(false);
+      appendChatWarning({ icon: '⚠️', title: 'Could not activate table', message: data.error });
+      return;
+    }
+
+    // Update active highlight
+    document.querySelectorAll('.tbl-item').forEach(el => el.classList.remove('active'));
+    const item = document.getElementById(`tbl-${name}`);
+    if (item) item.classList.add('active');
+
+    // Update sidebar info
+    document.getElementById('fileInfo').classList.remove('hidden');
+    document.getElementById('fileStats').innerHTML =
+      `<strong>${esc(name)}</strong><br>${data.shape.rows.toLocaleString()} rows × ${data.shape.columns} columns`;
+
+    buildPreviewTable(data.columns, data.sample);
+    renderAutoCharts(data.auto_charts || []);
+
+    const errSec = document.getElementById('errorsSection');
+    if (!data.from_cache) {
+      errSec.classList.remove('hidden');
+      errSec.innerHTML = renderWarning({
+        icon: '💡', title: 'Charts not available',
+        message: 'Auto-generated charts are only created on first upload. Re-upload this file to regenerate them.',
+      });
+    } else {
+      errSec.classList.add('hidden');
+      errSec.innerHTML = '';
+    }
+
+    chatHistory.length = 0;
+    document.getElementById('chatMessages').innerHTML = '';
+    document.getElementById('welcomeState').classList.add('hidden');
+    document.getElementById('chatSection').classList.remove('hidden');
+    refreshSummarySelector();
+
+  } catch (err) {
+    appendChatWarning({
+      icon: '🔌', title: 'No response from server',
+      message: 'Could not reach the backend. Please check that the server is running and try again.',
+    });
+  } finally {
+    showLoading(false);
+  }
+}
+
+async function deleteTable(name) {
+  if (!confirm(`Delete table "${name}"?\n\nThis will permanently remove all data. This cannot be undone.`)) return;
+  try {
+    const res  = await fetch(`/analyst/api/tables/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.error) {
+      alert(`Failed to delete: ${data.error}`);
+      return;
+    }
+    // Remove item from list
+    const item = document.getElementById(`tbl-${name}`);
+    if (item) item.remove();
+
+    // Hide the tables section if empty
+    if (!document.querySelector('.tbl-item')) {
+      document.getElementById('tablesSection').classList.add('hidden');
+    }
+
+    // If the deleted table was active, reset main content
+    if (data.deleted === name) {
+      document.getElementById('fileInfo').classList.add('hidden');
+      document.getElementById('previewSection').classList.add('hidden');
+      document.getElementById('chartsSection').classList.add('hidden');
+      document.getElementById('chatSection').classList.add('hidden');
+      document.getElementById('deepSummarySection').classList.add('hidden');
+      document.getElementById('errorsSection').classList.add('hidden');
+      document.getElementById('welcomeState').classList.remove('hidden');
+      chatHistory.length = 0;
+      document.getElementById('chatMessages').innerHTML = '';
+    }
+  } catch (err) {
+    alert('Failed to delete table. Please try again.');
+  }
+}
+
 /* ── Upload CSV ───────────────────────────────────────────── */
 async function handleUpload(file) {
   showLoading(true);
@@ -107,10 +231,16 @@ async function handleUpload(file) {
       return;
     }
 
+    // Refresh tables list and mark new table as active
+    await loadTablesList();
+    document.querySelectorAll('.tbl-item').forEach(el => el.classList.remove('active'));
+    const newItem = document.getElementById(`tbl-${data.table_name}`);
+    if (newItem) newItem.classList.add('active');
+
     // File info
     document.getElementById('fileInfo').classList.remove('hidden');
     document.getElementById('fileStats').innerHTML =
-      `<strong>${file.name}</strong><br>${data.shape.rows.toLocaleString()} rows × ${data.shape.columns} columns`;
+      `<strong>${esc(data.table_name || file.name)}</strong><br>${data.shape.rows.toLocaleString()} rows × ${data.shape.columns} columns`;
 
     buildPreviewTable(data.columns, data.sample);
     renderAutoCharts(data.auto_charts);
@@ -122,6 +252,9 @@ async function handleUpload(file) {
     if (data.fatal_error) {
       blockApi(data.fatal_error);
       return;
+    }
+    if (data.rename_warning) {
+      errHtml += renderWarning(data.rename_warning);
     }
     if (data.errors && data.errors.length > 0) {
       errHtml += data.errors.map(e => renderWarning({
@@ -252,6 +385,11 @@ async function sendChat() {
       chatHistory.push({ role: 'assistant', text: data.content || '' });
       if (data.chart_render_error) appendChatWarning(data.chart_render_error);
 
+    } else if (data.type === 'sql') {
+      appendSqlMsg(data.sql, data.columns || [], data.rows || [], data.sql_error, data.row_count, data.truncated);
+      const summary = data.sql_error ? `SQL error: ${data.sql_error}` : `Query returned ${data.row_count} row(s).`;
+      chatHistory.push({ role: 'assistant', text: summary });
+
     } else if (data.error && typeof data.error === 'object') {
       if (data.error.fatal) { blockApi(data.error); return; }
       appendChatWarning(data.error);
@@ -332,6 +470,46 @@ function appendChatMsg(role, text, figureJson, code, isError, chartExplanation) 
   }
 
   div.innerHTML = `<div class="avatar">${avatar}</div><div class="bubble">${bubbleContent}</div>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendSqlMsg(sql, columns, rows, sqlError, rowCount, truncated) {
+  const container = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg assistant';
+
+  const codeId = 'sql-' + Math.random().toString(36).slice(2, 8);
+  let html = `
+    <div class="fmt-code-block">
+      <div class="fmt-code-header">
+        <span class="fmt-code-lang sql">SQL</span>
+        <button class="fmt-copy-btn" onclick="copyCode('${codeId}')">Copy</button>
+      </div>
+      <pre id="${codeId}" class="fmt-code-pre">${esc(sql)}</pre>
+    </div>`;
+
+  if (sqlError) {
+    html += renderWarning({ icon: '⚠️', title: 'Query failed', message: sqlError });
+  } else if (!rows.length) {
+    html += `<div class="fmt-row-count">No rows returned.</div>`;
+  } else {
+    html += '<div class="fmt-table-wrap"><table class="fmt-table"><thead><tr>';
+    columns.forEach(c => { html += `<th>${esc(String(c))}</th>`; });
+    html += '</tr></thead><tbody>';
+    rows.forEach(row => {
+      html += '<tr>';
+      columns.forEach(c => { html += `<td>${esc(String(row[c] ?? ''))}</td>`; });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    const total = rowCount != null ? rowCount : rows.length;
+    html += `<div class="fmt-row-count">✓ <strong>${rows.length} row(s)</strong> returned`;
+    if (truncated) html += ` <span class="fmt-row-total">(showing first 500 of ${total})</span>`;
+    html += '</div>';
+  }
+
+  div.innerHTML = `<div class="avatar">🤖</div><div class="bubble">${html}</div>`;
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
 }
@@ -486,3 +664,6 @@ function copyCode(id) {
     if (btn) { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy', 1500); }
   });
 }
+
+/* ── Init: load persisted tables on page load ─────────────── */
+loadTablesList();
