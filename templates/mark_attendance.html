@@ -1,35 +1,67 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Mark Attendance</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mark Attendance · SarvaDaksh</title>
+  <script>(function(){var k="sarvadaksh-theme";var t=localStorage.getItem(k)||localStorage.getItem("da-theme")||"night";if(t==="dark")t="night";if(t==="light")t="day";document.documentElement.setAttribute("data-theme",t);})();</script>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/sarvadaksh-icon.png') }}">
 </head>
 <body>
-<div class="container my-4">
-  <div class="card p-4 shadow-sm">
-    <div class="d-flex justify-content-between align-items-center">
-      <h4>Mark Attendance (Live)</h4>
+
+<div class="erp-shell">
+  <nav class="erp-nav">
+    <a class="erp-brand" href="/">
+      <div class="erp-logo" aria-hidden="true">
+        <img src="{{ url_for('static', filename='images/sarvadaksh-icon.png') }}" alt="SarvaDaksh">
+      </div>
       <div>
-        <button id="startMarkBtn" class="btn btn-primary">Start</button>
-        <button id="stopMarkBtn" class="btn btn-danger" disabled>Stop</button>
-        <button class="btn btn-danger" onclick="window.location.href='/attendance'" >Back</button>
+        <span class="erp-brand-name">Sarva<b>Daksh</b></span>
+        <span class="erp-brand-sub">Mark Attendance</span>
+      </div>
+    </a>
+    <div class="erp-nav-actions">
+      <a class="btn btn-outline-light" href="/">Home</a>
+      <a class="btn btn-outline-light" href="/attendance">Dashboard</a>
+      <a class="btn btn-outline-light" href="/attendance_record">Records</a>
+      <div class="erp-theme-switcher" data-erp-theme-switcher>
+        <button class="erp-theme-btn" data-theme="day"      title="Day mode">☀️</button>
+        <button class="erp-theme-btn" data-theme="night"    title="Night mode">🌙</button>
+        <button class="erp-theme-btn" data-theme="midnight" title="Midnight mode">🌌</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="card p-4 reveal d1">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div>
+        <h4 class="mb-1">Live Recognition</h4>
+        <p class="text-muted small mb-0">Start the camera — recognized faces are auto-marked for today.</p>
+      </div>
+      <div class="d-flex gap-2">
+        <button id="startMarkBtn" class="btn btn-primary">▶ Start</button>
+        <button id="stopMarkBtn" class="btn btn-danger" disabled>■ Stop</button>
+        <button class="btn btn-outline-light" onclick="window.location.href='/attendance'">← Back</button>
       </div>
     </div>
 
-    <div class="row mt-3">
-      <div class="col-md-7 text-center">
-        <video id="markVideo" width="560" height="420" autoplay muted style="border-radius:10px;border:2px solid #e2e8f0;"></video>
-        <div id="markStatus" class="mt-2 small text-muted">Waiting...</div>
+    <div class="row mt-4 g-4">
+      <div class="col-lg-7 text-center">
+        <video id="markVideo" width="560" height="420" autoplay muted></video>
+        <div id="markStatus" class="erp-pill mt-3">Waiting…</div>
       </div>
-      <div class="col-md-5">
-        <h6>Recognized (session)</h6>
+      <div class="col-lg-5">
+        <h6 class="mb-2">Recognized this session</h6>
         <ul id="recognizedList" class="list-group"></ul>
+        <p id="recognizedEmpty" class="text-muted small mt-2 mb-0">No-one recognized yet.</p>
       </div>
     </div>
   </div>
 </div>
+
+<script src="{{ url_for('static', filename='js/erp-ui.js') }}"></script>
 <script src="{{ url_for('static', filename='js/camera_mark.js') }}"></script>
 </body>
 </html>

@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="night">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="AI-powered CSV data analytics assistant with interactive charts and insights" />
-  <title>Data Analytics Assistant</title>
+  <title>Data Analytics · SarvaDaksh</title>
   <link rel="stylesheet" href="/analyst/static/style.css" />
+  <link rel="icon" type="image/png" href="/analyst/static/images/sarvadaksh-icon.png">
   <script src="https://cdn.plot.ly/plotly-2.35.0.min.js" charset="utf-8"></script>
 </head>
 <body>
@@ -18,18 +19,21 @@
   <div class="app-layout">
     <!-- ── Header ──────────────────────────────────────────── -->
     <header class="header">
-      <div class="header-brand">
-        <div class="logo">📊</div>
+      <a href="/" class="header-brand" style="text-decoration:none;color:inherit">
+        <div class="logo erp-logo-mark" aria-hidden="true">
+          <img src="/analyst/static/images/sarvadaksh-icon.png" alt="SarvaDaksh">
+        </div>
         <div>
-          <h1>Data Analytics Assistant</h1>
+          <h1>Sarva<span style="background:linear-gradient(135deg,#e5b340,#ffd97a);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent">Daksh</span> · Data Analytics</h1>
           <span>Upload CSV · Instant Insights · Interactive Charts</span>
         </div>
-      </div>
+      </a>
       <div class="header-actions">
-        <a href="/" style="text-decoration:none;padding:8px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.15);color:inherit;font-size:13px;font-weight:600">&#8592; Home</a>
-        <div class="theme-switcher">
-          <button class="theme-btn active" data-theme="dark" title="Dark">🌙 Dark</button>
-          <button class="theme-btn" data-theme="light" title="Light">☀️ Light</button>
+        <a href="/" class="erp-home-link" title="Back to Home">&#8592; Home</a>
+        <a href="/attendance" class="erp-home-link" title="Attendance Dashboard">Attendance</a>
+        <div class="theme-switcher" data-erp-theme-switcher>
+          <button class="theme-btn" data-theme="day" title="Day">☀️ Day</button>
+          <button class="theme-btn active" data-theme="night" title="Night">🌙 Night</button>
           <button class="theme-btn" data-theme="midnight" title="Midnight">🌌 Midnight</button>
         </div>
       </div>

@@ -3,65 +3,51 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Student Details</title>
+  <title>Student Details · SarvaDaksh</title>
+  <script>(function(){var k="sarvadaksh-theme";var t=localStorage.getItem(k)||localStorage.getItem("da-theme")||"night";if(t==="dark")t="night";if(t==="light")t="day";document.documentElement.setAttribute("data-theme",t);})();</script>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet">
-  <style>
-    html { scroll-behavior: smooth; }
-    body {
-      min-height: 100vh;
-      margin: 0;
-      font-family: 'Segoe UI', Tahoma, sans-serif;
-      background: url("static/images/bg.png") center/cover no-repeat fixed;
-    }
-    .page-wrap {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 2rem;
-    }
-    .nav-gradient {
-      background: linear-gradient(90deg, #0f172a, #3b82f6);
-      border-radius: 0.75rem;
-      margin-bottom: 1.5rem;
-    }
-    .glass-card {
-      background: rgba(255, 255, 255, 0.93);
-      backdrop-filter: blur(6px);
-      border-radius: 16px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-    }
-    .table thead th { font-size: 0.82rem; letter-spacing: .03em; text-transform: uppercase; }
-    .badge-count { font-size: 0.85rem; }
-  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/sarvadaksh-icon.png') }}">
 </head>
 <body>
-<div class="page-wrap">
 
-  <!-- Navbar -->
-  <nav class="navbar navbar-expand-lg navbar-dark nav-gradient shadow-sm px-3">
-    <div class="container-fluid">
-      <span class="navbar-brand fw-bold">Student Details</span>
-      <div class="d-flex gap-2">
-        <a class="btn btn-outline-light btn-sm" href="/add_student">+ Add Student</a>
-        <a class="btn btn-outline-warning btn-sm" href="/attendance">← Back to Dashboard</a>
+<div class="erp-shell">
+  <nav class="erp-nav">
+    <a class="erp-brand" href="/">
+      <div class="erp-logo" aria-hidden="true">
+        <img src="{{ url_for('static', filename='images/sarvadaksh-icon.png') }}" alt="SarvaDaksh">
+      </div>
+      <div>
+        <span class="erp-brand-name">Sarva<b>Daksh</b></span>
+        <span class="erp-brand-sub">Student Directory</span>
+      </div>
+    </a>
+    <div class="erp-nav-actions">
+      <a class="btn btn-outline-light" href="/">Home</a>
+      <a class="btn btn-outline-light" href="/attendance">Dashboard</a>
+      <a class="btn btn-primary" href="/add_student">＋ Add Student</a>
+      <div class="erp-theme-switcher" data-erp-theme-switcher>
+        <button class="erp-theme-btn" data-theme="day"      title="Day mode">☀️</button>
+        <button class="erp-theme-btn" data-theme="night"    title="Night mode">🌙</button>
+        <button class="erp-theme-btn" data-theme="midnight" title="Midnight mode">🌌</button>
       </div>
     </div>
   </nav>
 
-  <!-- Card -->
-  <div class="card glass-card p-4">
-    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
-      <div class="d-flex align-items-center gap-2">
-        <h5 class="mb-0">Registered Students</h5>
-        <span id="studentCount" class="badge bg-primary badge-count">0</span>
+  <div class="card p-4 reveal d1">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+      <div class="d-flex align-items-center gap-3">
+        <h4 class="mb-0">Registered Students</h4>
+        <span id="studentCount" class="badge">0</span>
       </div>
-      <input id="searchInput" type="text" class="form-control form-control-sm"
+      <input id="searchInput" type="text" class="form-control"
         placeholder="Search by name, roll, class, section or reg no…"
-        style="max-width:300px;">
+        style="max-width:340px;">
     </div>
 
     <div class="table-responsive">
-      <table class="table table-hover table-bordered align-middle mb-0">
-        <thead class="table-dark">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
           <tr>
             <th>#</th>
             <th>Name</th>
@@ -74,28 +60,30 @@
           </tr>
         </thead>
         <tbody id="studentTableBody">
-          <tr><td colspan="8" class="text-center text-muted py-4">Loading…</td></tr>
+          <tr><td colspan="8" class="text-center text-muted py-4">
+            <span class="erp-spin"></span> Loading students…
+          </td></tr>
         </tbody>
       </table>
     </div>
 
     <div id="noResults" class="text-center text-muted py-3 d-none">No students match your search.</div>
   </div>
-
 </div>
 
+<script src="{{ url_for('static', filename='js/erp-ui.js') }}"></script>
 <script>
   let allStudents = [];
 
   async function loadStudents() {
     try {
-      const res = await fetch("/students");
+      const res  = await fetch("/students");
       const data = await res.json();
       allStudents = data.students || [];
       render(allStudents);
     } catch {
       document.getElementById("studentTableBody").innerHTML =
-        '<tr><td colspan="8" class="text-center text-danger py-4">Failed to load students.</td></tr>';
+        '<tr><td colspan="8" class="text-center py-4" style="color:#ffd2d2">Failed to load students.</td></tr>';
     }
   }
 
@@ -112,17 +100,17 @@
     noResults.classList.add("d-none");
 
     tbody.innerHTML = list.map((s, i) => `
-      <tr>
+      <tr ${i < 10 ? `class="reveal d${(i % 5) + 1}"` : ''}>
         <td class="text-muted">${i + 1}</td>
         <td class="fw-semibold">${esc(s.name)}</td>
         <td>${esc(s.roll)}</td>
         <td>${esc(s.class)}</td>
         <td>${esc(s.section)}</td>
         <td><code>${esc(s.reg_no)}</code></td>
-        <td class="text-muted small">${s.created_at ? s.created_at.slice(0,10) : '—'}</td>
+        <td class="text-muted small">${s.created_at ? s.created_at.slice(0, 10) : '—'}</td>
         <td class="text-center">
-          <button class="btn btn-outline-danger btn-sm px-2 py-0"
-            onclick="deleteStudent(${s.id}, '${esc(s.name).replace(/'/g,"\\'")}')">Delete</button>
+          <button class="btn btn-sm btn-outline-danger"
+            onclick="deleteStudent(${s.id}, '${esc(s.name).replace(/'/g, "\\'")}')">Delete</button>
         </td>
       </tr>
     `).join("");
@@ -155,8 +143,8 @@
 
   function esc(str) {
     return String(str ?? "")
-      .replace(/&/g,"&amp;").replace(/</g,"&lt;")
-      .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
   loadStudents();
