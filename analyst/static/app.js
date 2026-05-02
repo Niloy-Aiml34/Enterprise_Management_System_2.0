@@ -3,25 +3,36 @@ const chatHistory = [];
 let allCharts    = [];
 let apiBlocked   = false;   // set true on fatal API error; stops all further requests
 
-/* ── Theme Switching ──────────────────────────────────────── */
-document.querySelectorAll('.theme-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const theme = btn.dataset.theme;
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('da-theme', theme);
-    document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    recolorPlotlyCharts();
+/* ── Theme Switching (synced across SarvaDaksh pages) ─────── */
+const THEME_KEY = 'sarvadaksh-theme';
+const THEME_ALIAS = { dark: 'night', light: 'day', midnight: 'midnight' };
+
+function applyTheme(theme) {
+  const t = THEME_ALIAS[theme] || theme || 'night';
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem(THEME_KEY, t);
+  document.querySelectorAll('.theme-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.theme === t);
   });
+  if (typeof recolorPlotlyCharts === 'function') recolorPlotlyCharts();
+}
+
+document.querySelectorAll('.theme-btn').forEach(btn => {
+  btn.addEventListener('click', () => applyTheme(btn.dataset.theme));
 });
 
-const saved = localStorage.getItem('da-theme');
-if (saved) {
-  document.documentElement.setAttribute('data-theme', saved);
-  document.querySelectorAll('.theme-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.theme === saved);
-  });
-}
+const saved = localStorage.getItem(THEME_KEY) || localStorage.getItem('da-theme');
+applyTheme(saved || 'night');
+
+// Sync if another page changes the theme in the same browser session
+window.addEventListener('storage', (e) => {
+  if (e.key === THEME_KEY && e.newValue) applyTheme(e.newValue);
+});
+
+// Re-render plotly charts whenever the theme attribute changes
+new MutationObserver(() => {
+  if (typeof recolorPlotlyCharts === 'function') recolorPlotlyCharts();
+}).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
 /* ── Plotly theme helper ──────────────────────────────────── */
 function getPlotlyLayout() {
@@ -35,7 +46,8 @@ function getPlotlyLayout() {
     xaxis:  { gridcolor: gridColor, zerolinecolor: gridColor },
     yaxis:  { gridcolor: gridColor, zerolinecolor: gridColor },
     margin: { t: 40, r: 20, b: 40, l: 50 },
-    colorway: ['#7c5cfc','#38d5f8','#f87171','#34d399','#fbbf24','#c96bfa','#ff6b9d','#56e0a0'],
+    // SarvaDaksh palette: gold + navy + warm + cool
+    colorway: ['#e5b340','#4f6bd1','#ffd97a','#3a52b5','#f1cc66','#6582e6','#b3811a','#16225a'],
   };
 }
 
@@ -479,21 +491,29 @@ function appendSqlMsg(sql, columns, rows, sqlError, rowCount, truncated) {
   const div = document.createElement('div');
   div.className = 'chat-msg assistant';
 
-  const codeId = 'sql-' + Math.random().toString(36).slice(2, 8);
-  let html = `
-    <div class="fmt-code-block">
-      <div class="fmt-code-header">
-        <span class="fmt-code-lang sql">SQL</span>
-        <button class="fmt-copy-btn" onclick="copyCode('${codeId}')">Copy</button>
-      </div>
-      <pre id="${codeId}" class="fmt-code-pre">${esc(sql)}</pre>
-    </div>`;
+  let html = '';
 
   if (sqlError) {
-    html += renderWarning({ icon: '⚠️', title: 'Query failed', message: sqlError });
+    html += renderWarning({
+      icon: '⚠️',
+      title: "Sorry, I couldn't answer that",
+      message: 'Try rephrasing your question.',
+    });
   } else if (!rows.length) {
-    html += `<div class="fmt-row-count">No rows returned.</div>`;
+    html += `<div class="sql-answer-empty">No matching results were found.</div>`;
+  } else if (rows.length === 1 && columns.length === 1) {
+    // Single-cell answer → render as a clean sentence
+    const value = rows[0][columns[0]];
+    html += `<div class="sql-answer-single"><strong>${esc(String(value ?? '—'))}</strong></div>`;
+  } else if (rows.length === 1) {
+    // Single-row answer → render as a tidy key/value list
+    html += '<div class="sql-answer-card">';
+    columns.forEach(c => {
+      html += `<div class="sql-answer-row"><span class="sql-answer-key">${esc(String(c))}</span><span class="sql-answer-val">${esc(String(rows[0][c] ?? '—'))}</span></div>`;
+    });
+    html += '</div>';
   } else {
+    // Multi-row answer → keep the table view (no SQL shown)
     html += '<div class="fmt-table-wrap"><table class="fmt-table"><thead><tr>';
     columns.forEach(c => { html += `<th>${esc(String(c))}</th>`; });
     html += '</tr></thead><tbody>';
@@ -504,9 +524,9 @@ function appendSqlMsg(sql, columns, rows, sqlError, rowCount, truncated) {
     });
     html += '</tbody></table></div>';
     const total = rowCount != null ? rowCount : rows.length;
-    html += `<div class="fmt-row-count">✓ <strong>${rows.length} row(s)</strong> returned`;
-    if (truncated) html += ` <span class="fmt-row-total">(showing first 500 of ${total})</span>`;
-    html += '</div>';
+    if (truncated) {
+      html += `<div class="fmt-row-count"><span class="fmt-row-total">Showing first 500 of ${total}</span></div>`;
+    }
   }
 
   div.innerHTML = `<div class="avatar">🤖</div><div class="bubble">${html}</div>`;

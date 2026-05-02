@@ -167,13 +167,13 @@ function showMsg(msg, isError = true) {
   if (!el) {
     el = document.createElement("div");
     el.id = "formMsg";
-    el.style.cssText = "margin-top:10px;padding:10px 14px;border-radius:8px;font-size:14px;font-weight:500";
+    el.style.cssText = "margin-top:12px;padding:10px 14px;border-radius:10px;font-size:14px;font-weight:500;animation:rise .35s ease both";
     form.after(el);
   }
   el.textContent = msg;
-  el.style.background = isError ? "#fee2e2" : "#dcfce7";
-  el.style.color      = isError ? "#b91c1c" : "#15803d";
-  el.style.border     = isError ? "1px solid #fca5a5" : "1px solid #86efac";
+  el.style.background = isError ? "rgba(248,113,113,.12)" : "rgba(34,197,94,.14)";
+  el.style.color      = isError ? "#ffd2d2"               : "#b6f5ce";
+  el.style.border     = isError ? "1px solid rgba(248,113,113,.35)" : "1px solid rgba(34,197,94,.35)";
 }
 
 function clearMsg() {
@@ -183,16 +183,22 @@ function clearMsg() {
 
 function showSuccessBanner() {
   const banner = document.createElement("div");
-  banner.textContent = "Student added successfully! You can add another student.";
+  banner.textContent = "✓ Student added successfully! You can add another student.";
   banner.style.cssText = [
-    "position:fixed","top:20px","left:50%","transform:translateX(-50%)",
-    "background:#16a34a","color:#fff","padding:12px 24px",
-    "border-radius:10px","font-weight:600","z-index:9999",
-    "box-shadow:0 4px 16px rgba(0,0,0,.2)","transition:opacity .4s"
+    "position:fixed","top:24px","left:50%","transform:translate(-50%,-20px)",
+    "background:linear-gradient(180deg,#22c55e,#16a34a)","color:#04200d",
+    "padding:12px 24px","border-radius:14px","font-weight:700","z-index:9999",
+    "box-shadow:0 12px 30px rgba(34,197,94,.35)","opacity:0",
+    "transition:opacity .35s ease, transform .35s ease"
   ].join(";");
   document.body.appendChild(banner);
+  requestAnimationFrame(() => {
+    banner.style.opacity = "1";
+    banner.style.transform = "translate(-50%,0)";
+  });
   setTimeout(() => {
     banner.style.opacity = "0";
+    banner.style.transform = "translate(-50%,-20px)";
     setTimeout(() => banner.remove(), 400);
   }, 2800);
 }
