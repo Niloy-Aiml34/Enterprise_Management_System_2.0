@@ -71,10 +71,37 @@
   </div>
 </div>
 
+<!-- Train-before-leave overlay (shown only when navigating away after a deletion) -->
+<div id="leaveOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:var(--surface-2,#0f1a3d);border:1px solid rgba(229,179,64,.35);border-radius:16px;padding:28px 32px;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+    <h5 style="margin:0 0 10px;color:#fbbf24">⚠️ Retrain the Model?</h5>
+    <p style="color:var(--muted,#a3aec7);font-size:14px;margin:0 0 6px;line-height:1.6">
+      You deleted one or more students. The face recognition model still contains their face data
+      and may incorrectly recognize people during attendance.
+    </p>
+    <p style="color:var(--muted,#a3aec7);font-size:14px;margin:0 0 18px;line-height:1.6">
+      <strong style="color:#f8d57a">Train the model now to keep attendance accurate.</strong>
+    </p>
+    <div id="overlayProgressWrap" style="display:none;margin-bottom:14px">
+      <div class="progress" style="height:14px">
+        <div id="overlayBar" class="progress-bar bg-warning" style="width:0%">0%</div>
+      </div>
+      <div id="overlayMsg" style="font-size:12px;color:var(--muted,#a3aec7);margin-top:5px"></div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+      <button id="leaveAnywayBtn" class="btn btn-outline-secondary btn-sm">Leave without Training</button>
+      <button id="trainAndLeaveBtn" class="btn btn-warning btn-sm">🧠 Train Model &amp; Leave</button>
+    </div>
+  </div>
+</div>
+
 <script src="{{ url_for('static', filename='js/erp-ui.js') }}"></script>
 <script>
-  let allStudents = [];
+  let allStudents  = [];
+  let deletionMade = false;   // flips to true on first successful delete
+  let pendingNavUrl = null;
 
+  // ── Load & render ─────────────────────────────────────────
   async function loadStudents() {
     try {
       const res  = await fetch("/students");
@@ -88,7 +115,7 @@
   }
 
   function render(list) {
-    const tbody = document.getElementById("studentTableBody");
+    const tbody    = document.getElementById("studentTableBody");
     const noResults = document.getElementById("noResults");
     document.getElementById("studentCount").textContent = allStudents.length;
 
@@ -129,6 +156,7 @@
     if (!confirm(`Delete "${name}" and all their attendance records?`)) return;
     const res = await fetch(`/students/${id}`, { method: "DELETE" });
     if (res.ok) {
+      deletionMade = true;   // mark — retrain prompt will show on next navigation
       allStudents = allStudents.filter(s => s.id !== id);
       const q = document.getElementById("searchInput").value.toLowerCase();
       render(q
@@ -146,6 +174,95 @@
       .replace(/&/g, "&amp;").replace(/</g, "&lt;")
       .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
+
+  // ── Leave overlay ─────────────────────────────────────────
+  const overlay       = document.getElementById("leaveOverlay");
+  const leaveAnywayBtn = document.getElementById("leaveAnywayBtn");
+  const trainLeaveBtn  = document.getElementById("trainAndLeaveBtn");
+
+  function showOverlay(dest) {
+    pendingNavUrl = dest;
+    overlay.style.display = "flex";
+  }
+
+  leaveAnywayBtn.addEventListener("click", () => {
+    deletionMade = false;   // prevent beforeunload from firing
+    overlay.style.display = "none";
+    window.location.href = pendingNavUrl || "/";
+  });
+
+  trainLeaveBtn.addEventListener("click", async () => {
+    trainLeaveBtn.disabled  = true;
+    leaveAnywayBtn.disabled = true;
+    trainLeaveBtn.innerHTML = '<span class="erp-spin"></span> Training…';
+    document.getElementById("overlayProgressWrap").style.display = "";
+
+    try {
+      const res = await fetch("/train_model");
+      if (res.status === 400) {
+        const j = await res.json().catch(() => ({}));
+        document.getElementById("overlayMsg").textContent = j.message || "No students found — nothing to train.";
+        // No students left after deletion — just leave
+        deletionMade = false;
+        setTimeout(() => { window.location.href = pendingNavUrl || "/"; }, 1200);
+        return;
+      }
+      if (!res.ok && res.status !== 202) {
+        document.getElementById("overlayMsg").textContent = "Failed to start training.";
+        trainLeaveBtn.disabled  = false;
+        leaveAnywayBtn.disabled = false;
+        trainLeaveBtn.textContent = "🧠 Train Model & Leave";
+        return;
+      }
+
+      let trainingStarted = false;
+      let pollCount = 0;
+      const interval = setInterval(async () => {
+        try {
+          const data = await (await fetch("/train_status")).json();
+          pollCount++;
+          if (data.running) trainingStarted = true;
+
+          const pct = Math.max(0, Math.min(100, data.progress || 0));
+          document.getElementById("overlayBar").style.width = pct + "%";
+          document.getElementById("overlayBar").textContent = pct + "%";
+          document.getElementById("overlayMsg").textContent = data.message || "";
+
+          if (!data.running && (trainingStarted || pollCount >= 3)) {
+            clearInterval(interval);
+            deletionMade = false;   // prevent beforeunload
+            window.location.href = pendingNavUrl || "/";
+          }
+        } catch { /* keep polling */ }
+      }, 1500);
+
+    } catch (err) {
+      trainLeaveBtn.disabled  = false;
+      leaveAnywayBtn.disabled = false;
+      trainLeaveBtn.textContent = "🧠 Train Model & Leave";
+      document.getElementById("overlayMsg").textContent = "Error: " + err.message;
+    }
+  });
+
+  // Intercept all nav-link clicks when a deletion was made
+  document.querySelectorAll("a[href]").forEach(a => {
+    const href = a.getAttribute("href");
+    if (!href || href.startsWith("#") || href.startsWith("javascript")) return;
+    a.addEventListener("click", e => {
+      if (deletionMade) {
+        e.preventDefault();
+        showOverlay(href);
+      }
+    });
+  });
+
+  // Browser back / refresh / tab close
+  window.addEventListener("beforeunload", e => {
+    if (deletionMade) {
+      e.preventDefault();
+      e.returnValue = "You deleted students. The recognition model should be retrained. Leave anyway?";
+    }
+  });
 
   loadStudents();
 </script>

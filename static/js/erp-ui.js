@@ -86,6 +86,7 @@
 
   // Show loader on internal navigation clicks
   document.addEventListener("click", (e) => {
+    if (e.defaultPrevented) return;   // another handler blocked navigation — don't show loader
     const a = e.target.closest("a[href]");
     if (!a) return;
     const href = a.getAttribute("href");

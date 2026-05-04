@@ -185,10 +185,43 @@ def train_model_route():
     status = read_train_status()
     if status.get("running"):
         return jsonify({"status":"already_running"}), 202
+
+    # Pre-flight: ensure at least one student folder contains images
+    has_data = False
+    if os.path.isdir(DATASET_DIR):
+        for sid_dir in os.listdir(DATASET_DIR):
+            folder = os.path.join(DATASET_DIR, sid_dir)
+            if os.path.isdir(folder) and any(
+                f.lower().endswith((".jpg", ".jpeg", ".png"))
+                for f in os.listdir(folder)
+            ):
+                has_data = True
+                break
+
+    if not has_data:
+        write_train_status({"running": False, "progress": 0,
+                            "message": "No students found. Add students before training."})
+        return jsonify({"status": "no_data",
+                        "message": "No training data found. Please add students first."}), 400
+
     # reset status
     write_train_status({"running": True, "progress": 0, "message": "Starting training"})
-    # start background thread
-    t = threading.Thread(target=train_model_background, args=(DATASET_DIR, lambda p,m: write_train_status({"running": True, "progress": p, "message": m})))
+
+    def run_training():
+        try:
+            train_model_background(
+                DATASET_DIR,
+                lambda p, m: write_train_status({"running": True, "progress": p, "message": m}),
+            )
+        finally:
+            status = read_train_status()
+            write_train_status({
+                "running": False,
+                "progress": status.get("progress", 0),
+                "message": status.get("message", "Done"),
+            })
+
+    t = threading.Thread(target=run_training)
     t.daemon = True
     t.start()
     return jsonify({"status":"started"}), 202
@@ -326,6 +359,42 @@ def students_list():
     conn.close()
     data = [ {"id":r[0],"name":r[1],"roll":r[2],"class":r[3],"section":r[4],"reg_no":r[5],"created_at":r[6]} for r in rows ]
     return jsonify({"students": data})
+
+@app.route("/students/<int:sid>", methods=["PUT"])
+def update_student(sid):
+    data = request.get_json(silent=True) or request.form
+    name   = (data.get("name")   or "").strip()
+    roll   = (data.get("roll")   or "").strip()
+    cls    = (data.get("class")  or "").strip()
+    sec    = (data.get("sec")    or "").strip()
+    reg_no = (data.get("reg_no") or "").strip()
+
+    missing = [f for f, v in [("Name", name), ("Roll", roll), ("Class", cls), ("Section", sec), ("Registration No", reg_no)] if not v]
+    if missing:
+        return jsonify({"error": f"Required fields missing: {', '.join(missing)}."}), 400
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+
+    if reg_no:
+        c.execute("SELECT name FROM students WHERE reg_no = ? AND id != ?", (reg_no, sid))
+        row = c.fetchone()
+        if row:
+            conn.close()
+            return jsonify({"error": f"Registration number '{reg_no}' is already assigned to '{row[0]}'."}), 409
+
+    if roll and cls and sec:
+        c.execute("SELECT name FROM students WHERE roll = ? AND class = ? AND section = ? AND id != ?", (roll, cls, sec, sid))
+        row = c.fetchone()
+        if row:
+            conn.close()
+            return jsonify({"error": f"Roll '{roll}' is already taken by '{row[0]}' in {cls}–{sec}."}), 409
+
+    c.execute("UPDATE students SET name=?, roll=?, class=?, section=?, reg_no=? WHERE id=?",
+              (name, roll, cls, sec, reg_no, sid))
+    conn.commit()
+    conn.close()
+    return jsonify({"updated": True, "id": sid, "name": name, "roll": roll, "class": cls, "section": sec, "reg_no": reg_no})
 
 @app.route("/students/<int:sid>", methods=["DELETE"])
 def delete_student(sid):

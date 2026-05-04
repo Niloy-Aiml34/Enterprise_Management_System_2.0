@@ -1,10 +1,11 @@
-// dashboard.js — attendance dashboard chart + training progress
+// dashboard.js — attendance dashboard chart
 document.addEventListener("DOMContentLoaded", () => {
-  const trainBtn = document.getElementById("trainBtn");
+  const trainBtn      = document.getElementById("trainBtn");
   const trainProgress = document.getElementById("trainProgress");
-  const trainMsg = document.getElementById("trainMsg");
+  const trainMsg      = document.getElementById("trainMsg");
 
   async function pollStatus() {
+    if (!trainProgress || !trainMsg) return null;
     try {
       const res = await fetch("/train_status");
       const data = await res.json();
@@ -19,26 +20,38 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  trainBtn.addEventListener("click", async () => {
+  if (trainBtn) trainBtn.addEventListener("click", async () => {
     trainBtn.disabled = true;
     trainBtn.innerHTML = '<span class="erp-spin"></span> Starting…';
     try {
       const start = await fetch("/train_model");
-      if (!start.ok && start.status !== 202) {
-        alert("Failed to start training");
+      if (start.status === 400) {
+        const j = await start.json().catch(() => ({}));
+        if (trainMsg) trainMsg.innerText = j.message || "No students found. Add students before training.";
+        if (trainProgress) { trainProgress.style.width = "0%"; trainProgress.innerText = "0%"; }
         trainBtn.disabled = false;
         trainBtn.textContent = "Start Training";
         return;
       }
-      trainMsg.innerText = "Training started…";
+      if (!start.ok && start.status !== 202) {
+        if (trainMsg) trainMsg.innerText = "Failed to start training.";
+        trainBtn.disabled = false;
+        trainBtn.textContent = "Start Training";
+        return;
+      }
+      if (trainMsg) trainMsg.innerText = "Training started…";
       trainBtn.innerHTML = '<span class="erp-spin"></span> Training…';
+      let started = false;
+      let pollCount = 0;
       const t = setInterval(async () => {
         const s = await pollStatus();
-        if (s && s.progress >= 100) {
+        if (!s) return;
+        pollCount++;
+        if (s.running) started = true;
+        if (!s.running && (started || pollCount >= 3)) {
           clearInterval(t);
           trainBtn.disabled = false;
           trainBtn.textContent = "Start Training";
-          alert("Training completed");
         }
       }, 1500);
     } catch (err) {
